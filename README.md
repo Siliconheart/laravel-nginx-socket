@@ -8,6 +8,7 @@ Services:
 - php-fpm
 - nginx
 - Mariadb
+- Adminer
 - RabbitMQ (disabled)
 - Redis
 
