@@ -1,0 +1,149 @@
+version: '3'
+
+#Docker Networks
+networks:
+  app-network:
+    driver: bridge
+
+#Volumes
+volumes:
+  dbdata:
+    driver: local
+  rabbitmq_data:
+    driver: local
+
+services:
+
+  #PHP Service
+  app:
+    build:
+      context: php
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    tty: true
+    working_dir: /var/www
+    environment:
+      role: app
+    volumes:
+      - ./app/:/var/www
+      - ./php/local.ini:/usr/local/etc/php/conf.d/local.ini
+      - ./app/.env:/app/.env
+      - ./php/app-docker.conf:/usr/local/etc/php-fpm.d/zz-docker.conf
+      - ./php/run:/sock
+    networks:
+      - app-network
+    depends_on:
+      - db
+#      - rabbit
+
+  #queue service
+  queue:
+    build:
+      context: php
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    tty: true
+    stop_signal: SIGTERM
+    working_dir: /var/www
+    environment:
+      role: queue
+    volumes:
+      - ./app/:/var/www
+      - ./php/local.ini:/usr/local/etc/php/conf.d/local.ini
+      - ./app/.env:/app/.env
+      - ./php/app-docker.conf:/usr/local/etc/php-fpm.d/zz-docker.conf
+      - ./php/run:/sock
+    networks:
+      - app-network
+    depends_on:
+      - app
+#      - rabbit
+
+  #cron service
+  cron:
+    build:
+      context: php
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    tty: true
+    stop_signal: SIGTERM
+    working_dir: /var/www
+    environment:
+      role: cron
+    volumes:
+      - ./app/:/var/www
+      - ./php/local.ini:/usr/local/etc/php/conf.d/local.ini
+      - ./app/.env:/app/.env
+      - ./php/app-docker.conf:/usr/local/etc/php-fpm.d/zz-docker.conf
+      - ./php/run:/sock
+    networks:
+      - app-network
+    depends_on:
+      - app
+
+  #Nginx Service
+  web-server:
+    build:
+      dockerfile: ./nginx/Dockerfile
+    restart: unless-stopped
+    tty: true
+    ports:
+      - 80:80
+    volumes:
+      - ./app/:/var/www:ro
+      - ./nginx/conf.d/:/etc/nginx/conf.d/
+      - ./php/run/:/sock/
+    networks:
+      - app-network
+    depends_on:
+      - app
+
+  #db Service
+  db:
+    image: mariadb:latest
+    restart: unless-stopped
+    tty: true
+    ports:
+      - 3306:3306
+    environment:
+      - MYSQL_ROOT_PASSWORD=mysql_root_passwod
+      - MYSQL_DATABASE=app_db
+      - MYSQL_USER=app_user
+      - MYSQL_PASSWORD=app_password
+    volumes:
+      - 'dbdata:/var/lib/mysql/' #preserve databases on remove containers
+      - ./mariadb/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d #create databases on fresh build
+    networks:
+      - app-network
+
+  # Adminer - optional
+  adminer:
+    image: adminer
+    restart: unless-stopped
+    ports:
+     - 8080:8080
+    depends_on:
+     - db
+    networks:
+     - app-network
+
+  # Redis - optional
+  redis:
+    image: 'redis:alpine'
+    command: redis-server /usr/local/etc/redis/redis.conf
+    restart: unless-stopped
+    volumes:
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
+    networks:
+     - app-network
+
+  # RabbitMQ
+#  rabbit:
+#    image: 'rabbitmq:latest'
+#    restart: unless-stopped
+#    volumes:
+#      - 'rabbitmq_data:/var/lib/rabbitmq'
+#      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
+#      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json
+#    networks:
+#     - app-network
